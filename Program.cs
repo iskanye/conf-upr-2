@@ -4,18 +4,8 @@ using System.Text.RegularExpressions;
 namespace ConfigUpr2
 {
     partial class Program
-	{
-		struct CliOptions
-		{
-			public string PackageName;
-			public string Repo;
-			public bool TestRepoMode;
-			public string Version;
-			public int MaxDepth;
-			public string Filter;
-		}
-
-		static void PrintUsage()
+	{		
+		public static void PrintUsage()
 		{
 			Console.WriteLine("Usage: dotnet run -- [options]");
 			Console.WriteLine("Options:");
@@ -28,64 +18,17 @@ namespace ConfigUpr2
 			Console.WriteLine("  -h, --help                : Show this help and exit");
 		}
 
-		static int ExitWithError(string message)
+		public static int Error(string message)
 		{
 			Console.Error.WriteLine("Error: " + message);
 			Console.Error.WriteLine();
 			PrintUsage();
 			return 1;
 		}
-
-		static CliOptions ParseArgs(string[] args)
-		{
-			var opts = new CliOptions();
-			for (int i = 0; i < args.Length; i++)
-			{
-				var a = args[i];
-				switch (a)
-				{
-					case "-n":
-					case "--name":
-						if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --name");
-						opts.PackageName = args[++i];
-						break;
-					case "-r":
-					case "--repo":
-						if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --repo");
-						opts.Repo = args[++i];
-						break;
-					case "-t":
-					case "--test":
-						opts.TestRepoMode = true;
-						break;
-					case "-v":
-					case "--version":
-						if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --version");
-						opts.Version = args[++i];
-						break;
-					case "-d":
-					case "--max-depth":
-						if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --max-depth");
-						if (!int.TryParse(args[++i], out var d)) throw new ArgumentException("--max-depth must be an integer");
-						opts.MaxDepth = d;
-						break;
-					case "-f":
-					case "--filter":
-						if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --filter");
-						opts.Filter = args[++i];
-						break;
-					case "-h":
-					case "--help":
-						PrintUsage();
-						Environment.Exit(0);
-						break;
-					default:
-						throw new ArgumentException($"Unknown argument: {a}");
-				}
-			}
-			return opts;
-		}
-
+		
+		[GeneratedRegex("^[A-Za-z0-9._-]+$", RegexOptions.Compiled)]
+		private static partial Regex PackageName();
+		
 		static bool IsValidPackageName(string name)
 		{
 			if (string.IsNullOrWhiteSpace(name)) return false;
@@ -97,21 +40,21 @@ namespace ConfigUpr2
 			CliOptions opts;
 			try
 			{
-				opts = ParseArgs(args);
+				opts = CliOptions.ParseArgs(args);
 			}
 			catch (ArgumentException ex)
 			{
-				return ExitWithError(ex.Message);
+				return Error(ex.Message);
 			}
 
 			if (!IsValidPackageName(opts.PackageName))
 			{
-				return ExitWithError("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
+				return Error("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
 			}
 
 			if (string.IsNullOrWhiteSpace(opts.Repo))
 			{
-				return ExitWithError("Repository URL or path is required.");
+				return Error("Repository URL or path is required.");
 			}
 
 			// Repo validation: if looks like URL, validate scheme; else treat as path and require file exists
@@ -122,21 +65,21 @@ namespace ConfigUpr2
 			{
 				if (repoIsUrl)
 				{
-					return ExitWithError("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
+					return Error("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
 				}
 				if (!File.Exists(opts.Repo))
 				{
-					return ExitWithError($"Test repository file does not exist: {opts.Repo}");
+					return Error($"Test repository file does not exist: {opts.Repo}");
 				}
 			}
 			else if (repoIsUrl && !File.Exists(opts.Repo))
             {
-				return ExitWithError($"Repository is not a valid HTTP/HTTPS URL and the file does not exist: {opts.Repo}");
+				return Error($"Repository is not a valid HTTP/HTTPS URL and the file does not exist: {opts.Repo}");
 			}
 
 			if (opts.MaxDepth < 0)
 			{
-				return ExitWithError("--max-depth must be a non-negative integer.");
+				return Error("--max-depth must be a non-negative integer.");
 			}
 
 			// All validation passed — print parameters key=value
@@ -154,8 +97,5 @@ namespace ConfigUpr2
 		{
 			return MainWrapper(args);
 		}
-
-        [GeneratedRegex("^[A-Za-z0-9._-]+$", RegexOptions.Compiled)]
-        private static partial Regex PackageName();
     }
 }
