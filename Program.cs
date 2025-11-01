@@ -1,112 +1,111 @@
 ﻿using System.Text.RegularExpressions;
 
-namespace ConfigUpr2
+namespace ConfigUpr2;
+
+partial class Program
 {
-    partial class Program
-	{		
-		public static void PrintUsage()
-		{
-			Console.WriteLine("Usage: dotnet run -- [options]");
-			Console.WriteLine("Options:");
-			Console.WriteLine("  -n, --name <name>         : Name of the package to analyze (required)");
-			Console.WriteLine("  -r, --repo <url|path>     : Repository URL or path to test repository (required)");
-			Console.WriteLine("  -t, --test                : Enable test-repository mode (treat repo as local file)");
-			Console.WriteLine("  -v, --version <version>   : Package version (optional)");
-			Console.WriteLine("  -d, --max-depth <number>  : Maximum dependency depth (non-negative integer, default 5)");
-			Console.WriteLine("  -f, --filter <substring>  : Substring to filter packages (optional)");
-			Console.WriteLine("  -h, --help                : Show this help and exit");
-		}
+    public static void PrintUsage()
+    {
+        Console.WriteLine("Usage: dotnet run -- [options]");
+        Console.WriteLine("Options:");
+        Console.WriteLine("  -n, --name <name>         : Name of the package to analyze (required)");
+        Console.WriteLine("  -r, --repo <url|path>     : Repository URL or path to test repository (required)");
+        Console.WriteLine("  -t, --test                : Enable test-repository mode (treat repo as local file)");
+        Console.WriteLine("  -v, --version <version>   : Package version (optional)");
+        Console.WriteLine("  -d, --max-depth <number>  : Maximum dependency depth (non-negative integer, default 5)");
+        Console.WriteLine("  -f, --filter <substring>  : Substring to filter packages (optional)");
+        Console.WriteLine("  -h, --help                : Show this help and exit");
+    }
 
-		public static int Error(string message)
-		{
-			Console.Error.WriteLine("Error: " + message);
-			Console.Error.WriteLine();
-			PrintUsage();
-			return 1;
-		}
-		
-		[GeneratedRegex("^[A-Za-z0-9._-]+$", RegexOptions.Compiled)]
-		private static partial Regex PackageName();
-		
-		static bool IsValidPackageName(string name)
-		{
-			if (string.IsNullOrWhiteSpace(name)) return false;
-			return PackageName().IsMatch(name);
-		}
+    public static int Error(string message)
+    {
+        Console.Error.WriteLine("Error: " + message);
+        Console.Error.WriteLine();
+        PrintUsage();
+        return 1;
+    }
 
-		static async Task<int> MainWrapper(string[] args)
-		{
-			CliOptions opts;
-			try
-			{
-				opts = CliOptions.ParseArgs(args);
-			}
-			catch (ArgumentException ex)
-			{
-				return Error(ex.Message);
-			}
+    [GeneratedRegex("^[A-Za-z0-9._-]+$", RegexOptions.Compiled)]
+    private static partial Regex PackageName();
 
-			if (!IsValidPackageName(opts.PackageName))
-				return Error("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
+    static bool IsValidPackageName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return PackageName().IsMatch(name);
+    }
 
-			if (string.IsNullOrWhiteSpace(opts.Repo))
-				return Error("Repository URL or path is required.");
+    static async Task<int> MainWrapper(string[] args)
+    {
+        CliOptions opts;
+        try
+        {
+            opts = CliOptions.ParseArgs(args);
+        }
+        catch (ArgumentException ex)
+        {
+            return Error(ex.Message);
+        }
 
-			// Repo validation: if looks like URL, validate scheme; else treat as path and require file exists
-			bool repoIsUrl = Uri.TryCreate(opts.Repo, UriKind.Absolute, out var parsedUri) &&
-							 (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps);
+        if (!IsValidPackageName(opts.PackageName))
+            return Error("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
 
-			if (opts.TestRepoMode)
-			{
-				if (repoIsUrl)
-					return Error("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
-				if (!File.Exists(opts.Repo))
-					return Error($"Test repository file does not exist: {opts.Repo}");
-			}
-			else if (!repoIsUrl)
-				return Error($"Repository is not a valid HTTP/HTTPS URL: {opts.Repo}");
+        if (string.IsNullOrWhiteSpace(opts.Repo))
+            return Error("Repository URL or path is required.");
 
-			if (opts.MaxDepth < 0)
-				return Error("--max-depth must be a non-negative integer.");
+        // Repo validation: if looks like URL, validate scheme; else treat as path and require file exists
+        bool repoIsUrl = Uri.TryCreate(opts.Repo, UriKind.Absolute, out var parsedUri) &&
+                         (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps);
 
-			// All validation passed — print parameters key=value
-			Console.WriteLine("package_name={0}", opts.PackageName);
-			Console.WriteLine("repo={0}", opts.Repo);
-			Console.WriteLine("test_repo_mode={0}", opts.TestRepoMode);
-			Console.WriteLine("version={0}", string.IsNullOrEmpty(opts.Version) ? "" : opts.Version);
-			Console.WriteLine("max_depth={0}", opts.MaxDepth);
-			Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
+        if (opts.TestRepoMode)
+        {
+            if (repoIsUrl)
+                return Error("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
+            if (!File.Exists(opts.Repo))
+                return Error($"Test repository file does not exist: {opts.Repo}");
+        }
+        else if (!repoIsUrl)
+            return Error($"Repository is not a valid HTTP/HTTPS URL: {opts.Repo}");
 
-			// Сollect direct dependencies for the specified version
-			try
-			{
-				var packageJson = await DependencyUtils.GetPackageJson(opts);
-				if (string.IsNullOrEmpty(packageJson))
-					return Error("Could not locate package.json for the given repository/version.");
+        if (opts.MaxDepth < 0)
+            return Error("--max-depth must be a non-negative integer.");
 
-				var deps = DependencyUtils.ExtractDirectDependencies(packageJson);
-				Console.WriteLine("direct_dependencies:");
-				if (deps.Count == 0)
-					Console.WriteLine("\t(none)");
-				else
-				{
-					foreach (var kv in deps)
-					{
-						Console.WriteLine("\t{0}={1}", kv.Key, kv.Value);
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				return Error("Error while fetching dependencies: " + ex.Message);
-			}
+        // All validation passed — print parameters key=value
+        Console.WriteLine("package_name={0}", opts.PackageName);
+        Console.WriteLine("repo={0}", opts.Repo);
+        Console.WriteLine("test_repo_mode={0}", opts.TestRepoMode);
+        Console.WriteLine("version={0}", string.IsNullOrEmpty(opts.Version) ? "" : opts.Version);
+        Console.WriteLine("max_depth={0}", opts.MaxDepth);
+        Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
 
-			return 0;
-		}
+        // Сollect direct dependencies for the specified version
+        try
+        {
+            var packageJson = await DependencyUtils.GetPackageJson(opts);
+            if (string.IsNullOrEmpty(packageJson))
+                return Error("Could not locate package.json for the given repository/version.");
 
-		static async Task<int> Main(string[] args)
-		{
-			return await MainWrapper(args);
-		}
+            var deps = DependencyUtils.ExtractDirectDependencies(packageJson);
+            Console.WriteLine("direct_dependencies:");
+            if (deps.Count == 0)
+                Console.WriteLine("\t(none)");
+            else
+            {
+                foreach (var kv in deps)
+                {
+                    Console.WriteLine("\t{0}={1}", kv.Key, kv.Value);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            return Error("Error while fetching dependencies: " + ex.Message);
+        }
+
+        return 0;
+    }
+
+    static async Task<int> Main(string[] args)
+    {
+        return await MainWrapper(args);
     }
 }
