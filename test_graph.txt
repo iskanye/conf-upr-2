@@ -1,0 +1,6 @@
+A: B C
+B: C D
+C: E
+D: A
+E: 
+# example with cycle A->B->D->A and C->E leaf
