@@ -77,28 +77,31 @@ partial class Program
         Console.WriteLine("max_depth={0}", opts.MaxDepth);
         Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
 
-        // Сollect direct dependencies for the specified version
+        // Build full dependency graph using BFS (stage 3)
         try
         {
-            var packageJson = await DependencyUtils.GetPackageJson(opts);
-            if (string.IsNullOrEmpty(packageJson))
-                return Error("Could not locate package.json for the given repository/version.");
+            var (adjacency, depths) = await DependencyUtils.BuildDependencyGraphBFS(opts);
 
-            var deps = DependencyUtils.ExtractDirectDependencies(packageJson);
-            Console.WriteLine("direct_dependencies:");
-            if (deps.Count == 0)
-                Console.WriteLine("\t(none)");
-            else
+            Console.WriteLine();
+            Console.WriteLine("Dependency graph (node : depth):");
+            foreach (var kv in depths.OrderBy(k => k.Value).ThenBy(k => k.Key))
             {
-                foreach (var kv in deps)
+                Console.WriteLine("\t{0} : {1}", kv.Key, kv.Value);
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Edges (parent -> child):");
+            foreach (var parent in adjacency.Keys.OrderBy(x => x))
+            {
+                foreach (var child in adjacency[parent])
                 {
-                    Console.WriteLine("\t{0} = {1}", kv.Key, kv.Value);
+                    Console.WriteLine("\t{0} -> {1}", parent, child);
                 }
             }
         }
         catch (Exception ex)
         {
-            return Error("Error while fetching dependencies: " + ex.Message);
+            return Error("Error while building dependency graph: " + ex.Message);
         }
 
         return 0;
