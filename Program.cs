@@ -92,7 +92,7 @@ partial class Program
             {
                 foreach (var kv in deps)
                 {
-                    Console.WriteLine("\t{0}={1}", kv.Key, kv.Value);
+                    Console.WriteLine("\t{0} = {1}", kv.Key, kv.Value);
                 }
             }
         }

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.ComponentModel.DataAnnotations;
+using System.Formats.Asn1;
 
 namespace ConfigUpr2;
 
@@ -37,38 +38,23 @@ public static class DependencyUtils
             if (uri.Host.Contains("github.com", StringComparison.OrdinalIgnoreCase))
             {
                 // expect form: https://github.com/{owner}/{repo} or with .git suffix
-                var segments = uri.AbsolutePath.Trim('/').Split('/');
-                if (segments.Length >= 2)
+                var parts = uri.AbsolutePath.Trim('/').Split('/');
+                if (parts.Length >= 2)
                 {
-                    string rawUrl;
-                    var owner = segments[0];
-                    var repo = segments[1];
+                    var owner = parts[0];
+                    var repo = parts[1];
 
                     if (repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
                         repo = repo[..^4];
 
-                    // Try tag as-is and with 'v' prefix
-                    var candidates = new[] { opts.Version, "v" + opts.Version };
-
-                    foreach (var tag in candidates)
-                    {
-                        if (string.IsNullOrEmpty(tag))
-                            continue;
-                        rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{tag}/package.json";
-
-                        try
-                        {
-                            return await GetStringAsync(client, rawUrl);
-                        }
-                        catch { }
-                    }
-
-                    // As fallback try default branch
-                    rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/main/package.json";
+                    var tag = string.IsNullOrEmpty(opts.Version) ?
+                        "main" : 
+                        (opts.Version.StartsWith("v") ? opts.Version : "v" + opts.Version);
+                    var rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{tag}/package.json";
 
                     return await GetStringAsync(client, rawUrl);
                 }
-                
+
                 throw new Exception("Invalid GitHub URL format.");
             }
 
@@ -77,15 +63,10 @@ public static class DependencyUtils
                 || uri.Host.Contains("npmjs.org", StringComparison.OrdinalIgnoreCase))
             {
                 var parts = uri.AbsolutePath.Trim('/').Split('/');
-                if (parts.Length >= 2)
+                if (parts.Length != 0)
                 {
                     var pkg = parts[0];
-                    var ver = parts.Length >= 2 ? parts[1] : opts.Version;
-
-                    if (string.IsNullOrEmpty(ver))
-                        ver = opts.Version;
-                    if (string.IsNullOrEmpty(ver))
-                        return null;
+                    var ver = parts.Length > 1 ? parts[1] : (string.IsNullOrEmpty(opts.Version) ? "latest" : opts.Version);
 
                     var regUrl = $"https://registry.npmjs.org/{pkg}/{ver}";
 
@@ -103,20 +84,8 @@ public static class DependencyUtils
     {
         using var doc = JsonDocument.Parse(packageJson);
         var root = doc.RootElement;
-        // If this JSON is from npm registry metadata, the 'version' object might be nested. 
-        // Try to find 'dependencies' in common places.
         if (root.TryGetProperty("dependencies", out var deps))
             return ReadDependencies(deps);
-
-        // Nested 'dependencies' case
-        if (root.TryGetProperty("version", out var vers) && vers.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var p in vers.EnumerateObject())
-            {
-                if (vers.TryGetProperty("dependencies", out var nestedDeps))
-                    return ReadDependencies(nestedDeps);
-            }
-        }
 
         throw new JsonException("No 'dependencies' section found in package.json.");
     }
