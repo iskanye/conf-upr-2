@@ -1,5 +1,4 @@
-﻿
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace ConfigUpr2
 {
@@ -35,7 +34,7 @@ namespace ConfigUpr2
 			return PackageName().IsMatch(name);
 		}
 
-		static int MainWrapper(string[] args)
+		static async Task<int> MainWrapper(string[] args)
 		{
 			CliOptions opts;
 			try
@@ -48,14 +47,10 @@ namespace ConfigUpr2
 			}
 
 			if (!IsValidPackageName(opts.PackageName))
-			{
 				return Error("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
-			}
 
 			if (string.IsNullOrWhiteSpace(opts.Repo))
-			{
 				return Error("Repository URL or path is required.");
-			}
 
 			// Repo validation: if looks like URL, validate scheme; else treat as path and require file exists
 			bool repoIsUrl = Uri.TryCreate(opts.Repo, UriKind.Absolute, out var parsedUri) &&
@@ -64,23 +59,15 @@ namespace ConfigUpr2
 			if (opts.TestRepoMode)
 			{
 				if (repoIsUrl)
-				{
 					return Error("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
-				}
 				if (!File.Exists(opts.Repo))
-				{
 					return Error($"Test repository file does not exist: {opts.Repo}");
-				}
 			}
-			else if (repoIsUrl && !File.Exists(opts.Repo))
-            {
-				return Error($"Repository is not a valid HTTP/HTTPS URL and the file does not exist: {opts.Repo}");
-			}
+			else if (!repoIsUrl)
+				return Error($"Repository is not a valid HTTP/HTTPS URL: {opts.Repo}");
 
 			if (opts.MaxDepth < 0)
-			{
 				return Error("--max-depth must be a non-negative integer.");
-			}
 
 			// All validation passed — print parameters key=value
 			Console.WriteLine("package_name={0}", opts.PackageName);
@@ -90,12 +77,36 @@ namespace ConfigUpr2
 			Console.WriteLine("max_depth={0}", opts.MaxDepth);
 			Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
 
+			// Сollect direct dependencies for the specified version
+			try
+			{
+				var packageJson = await DependencyUtils.GetPackageJson(opts);
+				if (string.IsNullOrEmpty(packageJson))
+					return Error("Could not locate package.json for the given repository/version.");
+
+				var deps = DependencyUtils.ExtractDirectDependencies(packageJson);
+				Console.WriteLine("direct_dependencies:");
+				if (deps.Count == 0)
+					Console.WriteLine("\t(none)");
+				else
+				{
+					foreach (var kv in deps)
+					{
+						Console.WriteLine("\t{0}={1}", kv.Key, kv.Value);
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				return Error("Error while fetching dependencies: " + ex.Message);
+			}
+
 			return 0;
 		}
 
-		static int Main(string[] args)
+		static async Task<int> Main(string[] args)
 		{
-			return MainWrapper(args);
+			return await MainWrapper(args);
 		}
     }
 }
