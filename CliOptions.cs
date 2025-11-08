@@ -11,7 +11,7 @@ public struct CliOptions
 
     public static CliOptions ParseArgs(string[] args)
     {
-        var opts = new CliOptions();
+        var opts = new CliOptions();        
         for (int i = 0; i < args.Length; i++)
         {
             var a = args[i];
@@ -58,5 +58,4 @@ public struct CliOptions
         }
         return opts;
     }
-
 }

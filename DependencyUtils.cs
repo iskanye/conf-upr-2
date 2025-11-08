@@ -12,80 +12,6 @@ namespace ConfigUpr2;
 
 public static partial class DependencyUtils
 {
-    public static async Task<string?> GetPackageJson(CliOptions opts)
-    {
-        // Test repo: local file
-        if (opts.TestRepoMode)
-        {
-            var path = opts.Repo;
-            if (Directory.Exists(path))
-            {
-                var pkgPath = Path.Combine(path, "package.json");
-                if (File.Exists(pkgPath))
-                    return File.ReadAllText(pkgPath);
-
-                throw new FileNotFoundException("package.json file not found.", pkgPath);
-            }
-            if (File.Exists(path))
-                return File.ReadAllText(path);
-
-            throw new FileNotFoundException("Test repository file not found.", path);
-        }
-
-        using var client = new HttpClient();
-        // Repo is URL: try GitHub raw or npm registry
-        if (Uri.TryCreate(opts.Repo, UriKind.Absolute, out var uri))
-        {
-            if (uri.Host.Contains("github.com", StringComparison.OrdinalIgnoreCase))
-            {
-                // expect form: https://github.com/{owner}/{repo} or with .git suffix
-                var parts = uri.AbsolutePath.Trim('/').Split('/');
-                if (parts.Length >= 2)
-                {
-                    var owner = parts[0];
-                    var repo = parts[1];
-
-                    if (repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-                        repo = repo[..^4];
-
-                    var tag = string.IsNullOrEmpty(opts.Version) ?
-                        "main" : 
-                        (opts.Version.StartsWith("v") ? opts.Version : "v" + opts.Version);
-                    var rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{tag}/package.json";
-
-                    return await GetStringAsync(client, rawUrl);
-                }
-
-                throw new Exception("Invalid GitHub URL format.");
-            }
-
-            // Try npm registry pattern: https://registry.npmjs.org/<pkg>/<version>
-            if (uri.Host.Contains("registry.npmjs.org", StringComparison.OrdinalIgnoreCase)
-                || uri.Host.Contains("npmjs.org", StringComparison.OrdinalIgnoreCase))
-            {
-                var parts = uri.AbsolutePath.Trim('/').Split('/');
-                if (parts.Length != 0)
-                {
-                    var pkg = parts[0];
-                    var ver = parts.Length > 1 ? parts[1] : (string.IsNullOrEmpty(opts.Version) ? "latest" : opts.Version);
-
-                    var regUrl = $"https://registry.npmjs.org/{pkg}/{ver}";
-
-                    return await GetStringAsync(client, regUrl);
-                }
-
-                throw new Exception("Invalid npm registry URL format.");
-            }
-        }
-
-        throw new Exception("Could not fetch package.json from the specified repository.");
-    }
-
-    /// <summary>
-    /// Build dependency graph using BFS (non-recursive). Returns adjacency list and depths for each discovered node.
-    /// In test mode opts.Repo should point to a graph description file (JSON or plain text). Package names in test graph are expected
-    /// to be uppercase letters (per instructions) but any names are accepted. Filter substring and MaxDepth are honored.
-    /// </summary>
     public static async Task<(Dictionary<string, List<string>>, Dictionary<string,int>)> BuildDependencyGraphBFS(CliOptions opts)
     {
         var adjacency = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -122,7 +48,7 @@ public static partial class DependencyUtils
                 adjacency[name] = [];
 
             // If reached max depth, do not expand further
-            if (depth >= opts.MaxDepth)
+            if (depth >= opts.MaxDepth && opts.MaxDepth != 0)
                 continue;
 
             void DepsToQueue(IEnumerable<string> deps)
@@ -131,12 +57,16 @@ public static partial class DependencyUtils
                 {
                     if (!string.IsNullOrEmpty(filter) && dep.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                         continue;
-                    adjacency[name].Add(dep);
-
-                    if (!depths.ContainsKey(dep)) 
-                        depths[dep] = depth + 1;
-                    if (!visited.Contains(dep)) 
-                        q.Enqueue((dep, depth + 1));
+                    // only add/enqueue dependencies if within max depth
+                    var depDepth = depth + 1;
+                    if (depDepth <= opts.MaxDepth || opts.MaxDepth == 0)
+                    {
+                        adjacency[name].Add(dep);
+                        if (!depths.ContainsKey(dep))
+                            depths[dep] = depDepth;
+                        if (!visited.Contains(dep))
+                            q.Enqueue((dep, depDepth));
+                    }
                 }
             }
 
@@ -151,7 +81,9 @@ public static partial class DependencyUtils
                 // Fetch dependencies for the package from npm registry (best-effort)
                 try
                 {
-                    var depsDict = await FetchDependenciesForPackageAsync(name, opts.Version);
+                    // For root package use the user-specified version (if any). For transitive dependencies, query registry without forcing the root version.
+                    var versionArg = depth == 0 ? opts.Version : null;
+                    var depsDict = await FetchDependenciesForPackageAsync(name, versionArg);
                     if (depsDict != null)
                         DepsToQueue(depsDict.Keys);
                 }
@@ -175,8 +107,28 @@ public static partial class DependencyUtils
             using var doc = JsonDocument.Parse(txt);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
-                throw new JsonException("Test graph JSON must be an object mapping package -> array of deps.");
-            
+                throw new JsonException("Test graph JSON must be an object mapping package -> array of deps or a package.json.");
+
+            // If this is a package.json (has name + dependencies), convert to a single-node mapping
+            if (root.TryGetProperty("name", out var nameElem) && root.TryGetProperty("dependencies", out var depsElem))
+            {
+                var pkgName = nameElem.GetString() ?? Path.GetFileNameWithoutExtension(path);
+                var list = new List<string>();
+                if (depsElem.ValueKind == JsonValueKind.Object)
+                {
+                    var map = ReadDependencies(depsElem);
+                    foreach (var k in map.Keys) 
+                        list.Add(k);
+                }
+                else if (depsElem.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var it in depsElem.EnumerateArray()) 
+                        if (it.ValueKind == JsonValueKind.String) 
+                            list.Add(it.GetString()!);
+                }
+                return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) { [pkgName] = list };
+            }
+
             var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var prop in root.EnumerateObject())
             {
@@ -185,10 +137,17 @@ public static partial class DependencyUtils
                 {
                     foreach (var it in prop.Value.EnumerateArray())
                     {
-                        if (it.ValueKind == JsonValueKind.String) 
+                        if (it.ValueKind == JsonValueKind.String)
                             list.Add(it.GetString()!);
                     }
                 }
+                else if (prop.Value.ValueKind == JsonValueKind.Object)
+                {
+                    var depsMap = ReadDependencies(prop.Value);
+                    foreach (var k in depsMap.Keys)
+                        list.Add(k);
+                }
+
                 dict[prop.Name] = list;
             }
             return dict;
@@ -235,7 +194,7 @@ public static partial class DependencyUtils
         if (!string.IsNullOrEmpty(versionRange) && IsExactSemver(versionRange))
             url = $"https://registry.npmjs.org/{pkg}/{versionRange}";
         else
-            url = $"https://registry.npmjs.org/{pkg}";
+            url = $"https://registry.npmjs.org/{pkg}/latest";
 
         var txt = await GetStringAsync(client, url);
         if (string.IsNullOrEmpty(txt)) 
@@ -247,19 +206,6 @@ public static partial class DependencyUtils
         // If this is version object containing dependencies
         if (root.TryGetProperty("dependencies", out var deps))
             return ReadDependencies(deps);
-
-        // If this is package metadata with 'versions' and possibly 'dist-tags'
-        if (root.TryGetProperty("versions", out var versions))
-        {
-            // Try requested versionRange first
-            if (!string.IsNullOrEmpty(versionRange) && versions.TryGetProperty(versionRange, out var verObj) && verObj.ValueKind == JsonValueKind.Object)
-            {
-                if (verObj.TryGetProperty("dependencies", out var d2)) 
-                    return ReadDependencies(d2);
-            }
-
-            throw new JsonException("No 'dependencies' section found for the specified version.");
-        }
 
         throw new JsonException("No 'dependencies' section found for the package.");
     }

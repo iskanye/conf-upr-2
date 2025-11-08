@@ -19,25 +19,14 @@ tasks:
   run:github:
     desc: "Run attempting to fetch package.json from a example GitHub repo"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n mypkg -r "https://github.com/expressjs/express" -v 4.18.2
+      - dotnet run --project "{{.proj}}" -- -n express -r "https://github.com/expressjs/express" -v 2.0.0
 
   run:registry:
     desc: "Run against npm registry URL pattern"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n express -r "https://registry.npmjs.org/express/4.18.2" -v 4.18.2
+      - dotnet run --project "{{.proj}}" -- -n express -r "https://registry.npmjs.org/express" -v 2.0.0 
 
   run:help:
     desc: "Show CLI help"
     cmds:
       - dotnet run --project "{{.proj}}" -- -h
-
-  run:custom:
-    desc: "Run with custom env vars: set PKG, REPO, VER, DEPTH, FILTER before calling task or override inline"
-    vars:
-      PKG: ""
-      REPO: ""
-      VER: ""
-      DEPTH: "5"
-      FILTER: ""
-    cmds:
-      - dotnet run --project "{{.proj}}" -- -n "{{.PKG}}" -r "{{.REPO}}" -v "{{.VER}}" -d "{{.DEPTH}}" -f "{{.FILTER}}"
