@@ -50,10 +50,6 @@ partial class Program
         if (!IsValidPackageName(opts.PackageName))
             return Error("Package name is required and must contain only letters, digits, '.', '-' or '_'.");
 
-        if (string.IsNullOrWhiteSpace(opts.Repo))
-            return Error("Repository URL or path is required.");
-
-        // Repo validation: if looks like URL, validate scheme; else treat as path and require file exists
         bool repoIsUrl = Uri.TryCreate(opts.Repo, UriKind.Absolute, out var parsedUri) &&
                          (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps);
 
@@ -64,13 +60,10 @@ partial class Program
             if (!File.Exists(opts.Repo) && !Directory.Exists(opts.Repo))
                 return Error($"Test repository file or directory does not exist: {opts.Repo}");
         }
-        else if (!repoIsUrl)
-            return Error($"Repository is not a valid HTTP/HTTPS URL: {opts.Repo}");
 
         if (opts.MaxDepth < 0)
             return Error("--max-depth must be a non-negative integer.");
 
-        // All validation passed — print parameters key=value
         Console.WriteLine("package_name={0}", opts.PackageName);
         Console.WriteLine("repo={0}", opts.Repo);
         Console.WriteLine("test_repo_mode={0}", opts.TestRepoMode);
@@ -78,7 +71,6 @@ partial class Program
         Console.WriteLine("max_depth={0}", opts.MaxDepth);
         Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
 
-        // Build full dependency graph using BFS (stage 3)
         try
         {
             if (opts.OrderMode)

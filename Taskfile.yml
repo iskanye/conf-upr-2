@@ -16,20 +16,15 @@ tasks:
     cmds:
       - dotnet run --project "{{.proj}}" -- -t -r "{{.sample}}" -n sample -v 1.2.3
 
-  run:github:
-    desc: "Run attempting to fetch package.json from a example GitHub repo"
+  run:repo:
+    desc: "Run attempting to fetch package.json from a npm package"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n express -r "https://github.com/expressjs/express" -v 2.0.0
-
-  run:registry:
-    desc: "Run against npm registry URL pattern"
-    cmds:
-      - dotnet run --project "{{.proj}}" -- -n express -r "https://registry.npmjs.org/express" -v 2.0.0 
+      - dotnet run --project "{{.proj}}" -- -n express -v 2.0.0
       
   run:order:
-    desc: "Run attempting to fetch package.json from a example GitHub repo"
+    desc: "Run attempting to fetch package.json from a npm package (Order mode)"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n express -r "https://github.com/expressjs/express" -o
+      - dotnet run --project "{{.proj}}" -- -n express -v 3.0.0 -o
 
   run:help:
     desc: "Show CLI help"

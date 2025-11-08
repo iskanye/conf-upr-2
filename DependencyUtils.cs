@@ -96,7 +96,6 @@ public static partial class DependencyUtils
 
     public static Dictionary<string, List<string>> ParseTestGraphFile(string path)
     {
-        // If a directory is provided, read all JSON files inside as package.json files or mappings
         if (Directory.Exists(path))
         {
             var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -127,7 +126,6 @@ public static partial class DependencyUtils
                             continue;
                         }
 
-                        // Otherwise assume file is mapping package->deps and merge entries
                         foreach (var prop in root.EnumerateObject())
                         {
                             var list = new List<string>();
@@ -144,7 +142,7 @@ public static partial class DependencyUtils
                         }
                     }
                 }
-                catch { /* ignore malformed files */ }
+                catch { }
             }
             return dict;
         }
@@ -162,7 +160,6 @@ public static partial class DependencyUtils
             if (root.ValueKind != JsonValueKind.Object)
                 throw new JsonException("Test graph JSON must be an object mapping package -> array of deps or a package.json.");
 
-            // If this is a package.json (has name + dependencies), convert to a single-node mapping
             if (root.TryGetProperty("name", out var nameElem) && root.TryGetProperty("dependencies", out var depsElem))
             {
                 var pkgName = nameElem.GetString() ?? Path.GetFileNameWithoutExtension(path);
@@ -206,7 +203,6 @@ public static partial class DependencyUtils
             return dict;
         }
 
-        // Plain text format: lines like 'A: B C D' or 'A: B, C'
         var res = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in File.ReadAllLines(path))
         {
@@ -242,7 +238,6 @@ public static partial class DependencyUtils
     static async Task<Dictionary<string,string>?> FetchDependenciesForPackageAsync(string pkg, string? versionRange)
     {
         using var client = new HttpClient();
-        // If versionRange looks like exact semver, try registry/<pkg>/<ver>
         string url;
         if (!string.IsNullOrEmpty(versionRange) && IsExactSemver(versionRange))
             url = $"https://registry.npmjs.org/{pkg}/{versionRange}";
@@ -256,7 +251,6 @@ public static partial class DependencyUtils
         using var doc = JsonDocument.Parse(txt);
         var root = doc.RootElement;
 
-        // If this is version object containing dependencies
         if (root.TryGetProperty("dependencies", out var deps))
             return ReadDependencies(deps);
 
