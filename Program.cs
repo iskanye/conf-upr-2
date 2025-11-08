@@ -60,8 +60,8 @@ partial class Program
         {
             if (repoIsUrl)
                 return Error("--test mode requires a file path to a test repository, not an HTTP/HTTPS URL.");
-            if (!File.Exists(opts.Repo))
-                return Error($"Test repository file does not exist: {opts.Repo}");
+            if (!File.Exists(opts.Repo) && !Directory.Exists(opts.Repo))
+                return Error($"Test repository file or directory does not exist: {opts.Repo}");
         }
         else if (!repoIsUrl)
             return Error($"Repository is not a valid HTTP/HTTPS URL: {opts.Repo}");
@@ -80,22 +80,44 @@ partial class Program
         // Build full dependency graph using BFS (stage 3)
         try
         {
-            var (adjacency, depths) = await DependencyUtils.BuildDependencyGraphBFS(opts);
-
-            Console.WriteLine();
-            Console.WriteLine("Dependency graph (node : depth):");
-            foreach (var kv in depths.OrderBy(k => k.Value).ThenBy(k => k.Key))
+            if (opts.OrderMode)
             {
-                Console.WriteLine("\t{0} : {1}", kv.Key, kv.Value);
-            }
+                var (order, cycles) = await DependencyUtils.ComputeInstallOrderAsync(opts);
+                Console.WriteLine();
+                Console.WriteLine("Install / load order (dependencies first):");
+                int idx = 1;
+                foreach (var p in order)
+                    Console.WriteLine("\t{0}. {1}", idx++, p);
 
-            Console.WriteLine();
-            Console.WriteLine("Edges (parent -> child):");
-            foreach (var parent in adjacency.Keys.OrderBy(x => x))
-            {
-                foreach (var child in adjacency[parent])
+                if (cycles.Count > 0)
                 {
-                    Console.WriteLine("\t{0} -> {1}", parent, child);
+                    Console.WriteLine();
+                    Console.WriteLine("Detected cycles (may affect install order):");
+                    foreach (var c in cycles)
+                        Console.WriteLine("\tCycle: {0}", string.Join(" -> ", c));
+                }
+
+                Console.WriteLine();
+            }
+            else
+            {
+                var (adjacency, depths) = await DependencyUtils.BuildDependencyGraphBFS(opts);
+
+                Console.WriteLine();
+                Console.WriteLine("Dependency graph (node : depth):");
+                foreach (var kv in depths.OrderBy(k => k.Value).ThenBy(k => k.Key))
+                {
+                    Console.WriteLine("\t{0} : {1}", kv.Key, kv.Value);
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("Edges (parent -> child):");
+                foreach (var parent in adjacency.Keys.OrderBy(x => x))
+                {
+                    foreach (var child in adjacency[parent])
+                    {
+                        Console.WriteLine("\t{0} -> {1}", parent, child);
+                    }
                 }
             }
         }

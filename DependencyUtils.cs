@@ -44,11 +44,11 @@ public static partial class DependencyUtils
                 continue;
 
             // Ensure adjacency entry exists
-            if (!adjacency.ContainsKey(name)) 
-                adjacency[name] = [];
+            if (!adjacency.ContainsKey(name))
+                adjacency[name] = new List<string>();
 
-            // If reached max depth, do not expand further
-            if (depth >= opts.MaxDepth && opts.MaxDepth != 0)
+            // If reached max depth, do not expand further (0 means unlimited)
+            if (opts.MaxDepth != 0 && depth >= opts.MaxDepth)
                 continue;
 
             void DepsToQueue(IEnumerable<string> deps)
@@ -96,11 +96,64 @@ public static partial class DependencyUtils
 
     static Dictionary<string, List<string>> ParseTestGraphFile(string path)
     {
+        // If a directory is provided, read all JSON files inside as package.json files or mappings
+        if (Directory.Exists(path))
+        {
+            var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var files = Directory.GetFiles(path, "*.json", SearchOption.TopDirectoryOnly);
+            foreach (var f in files)
+            {
+                try
+                {
+                    var txt = File.ReadAllText(f);
+                    using var doc = JsonDocument.Parse(txt);
+                    var root = doc.RootElement;
+                    if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        if (root.TryGetProperty("name", out var nameElem) && root.TryGetProperty("dependencies", out var depsElem))
+                        {
+                            var pkgName = nameElem.GetString() ?? Path.GetFileNameWithoutExtension(f);
+                            var list = new List<string>();
+                            if (depsElem.ValueKind == JsonValueKind.Object)
+                            {
+                                var map = ReadDependencies(depsElem);
+                                foreach (var k in map.Keys) list.Add(k);
+                            }
+                            else if (depsElem.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var it in depsElem.EnumerateArray()) if (it.ValueKind == JsonValueKind.String) list.Add(it.GetString()!);
+                            }
+                            dict[pkgName] = list;
+                            continue;
+                        }
+
+                        // Otherwise assume file is mapping package->deps and merge entries
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            var list = new List<string>();
+                            if (prop.Value.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var it in prop.Value.EnumerateArray()) if (it.ValueKind == JsonValueKind.String) list.Add(it.GetString()!);
+                            }
+                            else if (prop.Value.ValueKind == JsonValueKind.Object)
+                            {
+                                var depsMap = ReadDependencies(prop.Value);
+                                foreach (var k in depsMap.Keys) list.Add(k);
+                            }
+                            dict[prop.Name] = list;
+                        }
+                    }
+                }
+                catch { /* ignore malformed files */ }
+            }
+            return dict;
+        }
+
         if (!File.Exists(path))
             throw new FileNotFoundException("Test graph file not found.", path);
 
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        
+
         if (ext == ".json")
         {
             var txt = File.ReadAllText(path);
@@ -165,14 +218,14 @@ public static partial class DependencyUtils
             var key = parts[0].Trim();
             var list = new List<string>();
 
-            if (parts.Length > 1)
-            {
-                var rhs = parts[1];
-                var deps = rhs.Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 1)
+                {
+                    var rhs = parts[1];
+                    var deps = rhs.Split(new char[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
-                foreach (var d in deps)
-                    list.Add(d.Trim());
-            }
+                    foreach (var d in deps)
+                        list.Add(d.Trim());
+                }
             
             res[key] = list;
         }
@@ -194,7 +247,7 @@ public static partial class DependencyUtils
         if (!string.IsNullOrEmpty(versionRange) && IsExactSemver(versionRange))
             url = $"https://registry.npmjs.org/{pkg}/{versionRange}";
         else
-            url = $"https://registry.npmjs.org/{pkg}/latest";
+            url = $"https://registry.npmjs.org/{pkg}";
 
         var txt = await GetStringAsync(client, url);
         if (string.IsNullOrEmpty(txt)) 
@@ -247,4 +300,60 @@ public static partial class DependencyUtils
 
     [System.Text.RegularExpressions.GeneratedRegex("^\\d+\\.\\d+\\.\\d+$")]
     private static partial System.Text.RegularExpressions.Regex Semver();
+
+    /// <summary>
+    /// Compute an install/load order for the given package. Returns list in the order
+    /// dependencies should be loaded (dependencies first), and a list of detected cycles (each cycle is a list of nodes).
+    /// Currently implemented as a DFS post-order traversal over the adjacency graph. Works best in test-repo mode
+    /// where a local directory of package.json files or mapping JSON is available. For remote registries, this will
+    /// build the adjacency via the existing BFS fetch and then compute the order.
+    /// </summary>
+    public static async Task<(List<string> Order, List<List<string>> Cycles)> ComputeInstallOrderAsync(CliOptions opts)
+    {
+        Dictionary<string, List<string>> adjacency;
+
+        if (opts.TestRepoMode)
+        {
+            adjacency = ParseTestGraphFile(opts.Repo);
+        }
+        else
+        {
+            // Build adjacency by doing a BFS traversal up to a reasonable depth (opts.MaxDepth or default 5)
+            var (adj, _) = await BuildDependencyGraphBFS(opts);
+            adjacency = adj;
+        }
+
+        var order = new List<string>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cycles = new List<List<string>>();
+
+        void Dfs(string node)
+        {
+            if (visited.Contains(node)) return;
+            if (visiting.Contains(node))
+            {
+                // found a cycle; record simple cycle trace
+                cycles.Add(new List<string> { node });
+                return;
+            }
+
+            visiting.Add(node);
+            if (adjacency.TryGetValue(node, out var children))
+            {
+                foreach (var c in children)
+                {
+                    if (!visited.Contains(c))
+                        Dfs(c);
+                }
+            }
+            visiting.Remove(node);
+            visited.Add(node);
+            order.Add(node);
+        }
+
+        Dfs(opts.PackageName);
+
+        return (order, cycles);
+    }
 }
