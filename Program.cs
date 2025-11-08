@@ -14,6 +14,7 @@ partial class Program
         Console.WriteLine("  -v, --version <version>   : Package version (optional)");
         Console.WriteLine("  -d, --max-depth <number>  : Maximum dependency depth (non-negative integer, default 5)");
         Console.WriteLine("  -f, --filter <substring>  : Substring to filter packages (optional)");
+        Console.WriteLine("  -o, --order               : Show install order (optional)");
         Console.WriteLine("  -h, --help                : Show this help and exit");
     }
 
@@ -82,7 +83,7 @@ partial class Program
         {
             if (opts.OrderMode)
             {
-                var (order, cycles) = await DependencyUtils.ComputeInstallOrderAsync(opts);
+                var (order, cycles) = await InstallOrder.ComputeInstallOrderAsync(opts);
                 Console.WriteLine();
                 Console.WriteLine("Install / load order (dependencies first):");
                 int idx = 1;

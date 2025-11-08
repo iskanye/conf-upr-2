@@ -25,6 +25,11 @@ tasks:
     desc: "Run against npm registry URL pattern"
     cmds:
       - dotnet run --project "{{.proj}}" -- -n express -r "https://registry.npmjs.org/express" -v 2.0.0 
+      
+  run:order:
+    desc: "Run attempting to fetch package.json from a example GitHub repo"
+    cmds:
+      - dotnet run --project "{{.proj}}" -- -n express -r "https://github.com/expressjs/express" -o
 
   run:help:
     desc: "Show CLI help"
