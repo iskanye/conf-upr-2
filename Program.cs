@@ -15,6 +15,7 @@ partial class Program
         Console.WriteLine("  -d, --max-depth <number>  : Maximum dependency depth (non-negative integer, default 5)");
         Console.WriteLine("  -f, --filter <substring>  : Substring to filter packages (optional)");
         Console.WriteLine("  -o, --order               : Show install order (optional)");
+        Console.WriteLine("  -m, --mermaid             : Generate and open Mermaid diagram (optional)");
         Console.WriteLine("  -h, --help                : Show this help and exit");
     }
 
@@ -71,6 +72,8 @@ partial class Program
         Console.WriteLine("version={0}", opts.Version);
         Console.WriteLine("max_depth={0}", opts.MaxDepth);
         Console.WriteLine("filter={0}", opts.Filter);
+        Console.WriteLine("order_mode={0}", opts.OrderMode);
+        Console.WriteLine("visualize={0}", opts.Visualize);
 
         try
         {
@@ -113,6 +116,12 @@ partial class Program
                 }
 
                 Console.WriteLine();
+            }
+
+            if (opts.Visualize)
+            {
+                var mermaid = MermaidVisualizer.GenerateMermaid(adjacency);                
+                await MermaidVisualizer.WriteHtmlAndOpenAsync(mermaid, opts.PackageName);
             }
 
         }
