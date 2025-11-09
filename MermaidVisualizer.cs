@@ -9,7 +9,6 @@ namespace ConfigUpr2
 {
     public static class MermaidVisualizer
     {
-        // Generate Mermaid graph text for a directed graph (adjacency list). Focused on readability.
         public static string GenerateMermaid(Dictionary<string, List<string>> adjacency)
         {
             var sb = new StringBuilder();
