@@ -13,7 +13,7 @@ namespace ConfigUpr2
         public static string GenerateMermaid(Dictionary<string, List<string>> adjacency)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("graph TD");
+            sb.AppendLine("graph");
 
             foreach (var kv in adjacency)
             {
@@ -29,8 +29,9 @@ namespace ConfigUpr2
 
         static string Escape(string s)
         {
-            if (s == null) return "";
-            return s.Replace("\"", "\\\"");
+            if (s == null) 
+                return "";
+            return s.Replace("\"", "\\\"").Replace("@", "");
         }
 
         public static async Task WriteHtmlAndOpenAsync(string mermaidSource, string nameHint)
@@ -43,8 +44,9 @@ namespace ConfigUpr2
             sb.AppendLine("<title>Mermaid Diagram - " + System.Net.WebUtility.HtmlEncode(nameHint) + "</title>");
             sb.AppendLine("<script type=\"module\" src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs\"></script>");
             sb.AppendLine("<script>");
-            sb.AppendLine("mermaid.initialize();");
+            sb.AppendLine("mermaid.initialize({ startOnLoad: true });");
             sb.AppendLine("</script>");
+            sb.AppendLine("<style>body { width:200%; }</style>");
             sb.AppendLine("</head>");
             sb.AppendLine("<body>");
             sb.AppendLine("<div class=\"mermaid\">");

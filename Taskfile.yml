@@ -20,6 +20,11 @@ tasks:
     desc: "Run attempting to fetch package.json from a npm package"
     cmds:
       - dotnet run --project "{{.proj}}" -- -n express -v 2.0.0
+
+  run:mermaid:
+    desc: "Visualize dependency graph in Mermaid format"
+    cmds:
+      - dotnet run --project "{{.proj}}" -- -n mocha -m
       
   run:order:
     desc: "Run attempting to fetch package.json from a npm package (Order mode)"
