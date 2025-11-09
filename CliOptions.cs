@@ -9,6 +9,7 @@ public struct CliOptions
     public int MaxDepth;
     public string Filter;
     public bool OrderMode;
+    public bool Visualize;
 
     public static CliOptions ParseArgs(string[] args)
     {
@@ -51,6 +52,10 @@ public struct CliOptions
                 case "-o":
                 case "--order":
                     opts.OrderMode = true;
+                    break;
+                case "-m":
+                case "--mermaid":
+                    opts.Visualize = true;
                     break;
                 case "-h":
                 case "--help":
