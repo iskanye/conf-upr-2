@@ -1,18 +1,11 @@
-using System;
-using System.IO;
-using System.Net.Http;
 using System.Text.Json;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.ComponentModel.DataAnnotations;
-using System.Formats.Asn1;
-using System.Linq;
 
 namespace ConfigUpr2;
 
 public static partial class DependencyUtils
 {
-    public static async Task<(Dictionary<string, List<string>>, Dictionary<string,int>)> BuildDependencyGraphBFS(CliOptions opts)
+    public static async Task<(Dictionary<string, List<string>>, Dictionary<string, int>)> BuildDependencyGraphBFS(
+        HttpClient client, CliOptions opts)
     {
         var adjacency = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var depths = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -20,7 +13,6 @@ public static partial class DependencyUtils
 
         var filter = string.IsNullOrEmpty(opts.Filter) ? null : opts.Filter;
 
-        // For test mode, parse the repository graph file as mapping
         Dictionary<string, List<string>>? testGraph = null;
         if (opts.TestRepoMode)
         {
@@ -39,16 +31,12 @@ public static partial class DependencyUtils
                 continue;
             visited.Add(name);
 
-            // Apply filter: skip nodes containing the filter substring
             if (!string.IsNullOrEmpty(filter) && name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 continue;
-
-            // Ensure adjacency entry exists
-            if (!adjacency.ContainsKey(name)) 
+            if (!adjacency.ContainsKey(name))
                 adjacency[name] = [];
 
-            // If reached max depth, do not expand further
-            if (depth >= opts.MaxDepth && opts.MaxDepth != 0)
+            if (opts.MaxDepth != 0 && depth >= opts.MaxDepth)
                 continue;
 
             void DepsToQueue(IEnumerable<string> deps)
@@ -57,7 +45,6 @@ public static partial class DependencyUtils
                 {
                     if (!string.IsNullOrEmpty(filter) && dep.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                         continue;
-                    // only add/enqueue dependencies if within max depth
                     var depDepth = depth + 1;
                     if (depDepth <= opts.MaxDepth || opts.MaxDepth == 0)
                     {
@@ -72,18 +59,15 @@ public static partial class DependencyUtils
 
             if (opts.TestRepoMode)
             {
-                // In test graph, dependencies are simple list of package names
                 if (testGraph != null && testGraph.TryGetValue(name, out var list))
                     DepsToQueue(list);
             }
             else
             {
-                // Fetch dependencies for the package from npm registry (best-effort)
                 try
                 {
-                    // For root package use the user-specified version (if any). For transitive dependencies, query registry without forcing the root version.
                     var versionArg = depth == 0 ? opts.Version : null;
-                    var depsDict = await FetchDependenciesForPackageAsync(name, versionArg);
+                    var depsDict = await FetchDependenciesForPackageAsync(client, name, versionArg);
                     if (depsDict != null)
                         DepsToQueue(depsDict.Keys);
                 }
@@ -96,11 +80,62 @@ public static partial class DependencyUtils
 
     static Dictionary<string, List<string>> ParseTestGraphFile(string path)
     {
+        if (Directory.Exists(path))
+        {
+            var dict = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var files = Directory.GetFiles(path, "*.json", SearchOption.TopDirectoryOnly);
+            foreach (var f in files)
+            {
+                try
+                {
+                    var txt = File.ReadAllText(f);
+                    using var doc = JsonDocument.Parse(txt);
+                    var root = doc.RootElement;
+                    if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        if (root.TryGetProperty("name", out var nameElem) && root.TryGetProperty("dependencies", out var depsElem))
+                        {
+                            var pkgName = nameElem.GetString() ?? Path.GetFileNameWithoutExtension(f);
+                            var list = new List<string>();
+                            if (depsElem.ValueKind == JsonValueKind.Object)
+                            {
+                                var map = ReadDependencies(depsElem);
+                                foreach (var k in map.Keys) list.Add(k);
+                            }
+                            else if (depsElem.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var it in depsElem.EnumerateArray()) if (it.ValueKind == JsonValueKind.String) list.Add(it.GetString()!);
+                            }
+                            dict[pkgName] = list;
+                            continue;
+                        }
+
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            var list = new List<string>();
+                            if (prop.Value.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var it in prop.Value.EnumerateArray()) if (it.ValueKind == JsonValueKind.String) list.Add(it.GetString()!);
+                            }
+                            else if (prop.Value.ValueKind == JsonValueKind.Object)
+                            {
+                                var depsMap = ReadDependencies(prop.Value);
+                                foreach (var k in depsMap.Keys) list.Add(k);
+                            }
+                            dict[prop.Name] = list;
+                        }
+                    }
+                }
+                catch { }
+            }
+            return dict;
+        }
+
         if (!File.Exists(path))
             throw new FileNotFoundException("Test graph file not found.", path);
 
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        
+
         if (ext == ".json")
         {
             var txt = File.ReadAllText(path);
@@ -109,7 +144,6 @@ public static partial class DependencyUtils
             if (root.ValueKind != JsonValueKind.Object)
                 throw new JsonException("Test graph JSON must be an object mapping package -> array of deps or a package.json.");
 
-            // If this is a package.json (has name + dependencies), convert to a single-node mapping
             if (root.TryGetProperty("name", out var nameElem) && root.TryGetProperty("dependencies", out var depsElem))
             {
                 var pkgName = nameElem.GetString() ?? Path.GetFileNameWithoutExtension(path);
@@ -153,7 +187,6 @@ public static partial class DependencyUtils
             return dict;
         }
 
-        // Plain text format: lines like 'A: B C D' or 'A: B, C'
         var res = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in File.ReadAllLines(path))
         {
@@ -165,14 +198,14 @@ public static partial class DependencyUtils
             var key = parts[0].Trim();
             var list = new List<string>();
 
-            if (parts.Length > 1)
-            {
-                var rhs = parts[1];
-                var deps = rhs.Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 1)
+                {
+                    var rhs = parts[1];
+                    var deps = rhs.Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
 
-                foreach (var d in deps)
-                    list.Add(d.Trim());
-            }
+                    foreach (var d in deps)
+                        list.Add(d.Trim());
+                }
             
             res[key] = list;
         }
@@ -186,10 +219,8 @@ public static partial class DependencyUtils
         return Semver().IsMatch(s);
     }
 
-    static async Task<Dictionary<string,string>?> FetchDependenciesForPackageAsync(string pkg, string? versionRange)
+    static async Task<Dictionary<string, string>?> FetchDependenciesForPackageAsync(HttpClient client, string pkg, string? versionRange)
     {
-        using var client = new HttpClient();
-        // If versionRange looks like exact semver, try registry/<pkg>/<ver>
         string url;
         if (!string.IsNullOrEmpty(versionRange) && IsExactSemver(versionRange))
             url = $"https://registry.npmjs.org/{pkg}/{versionRange}";
@@ -203,21 +234,10 @@ public static partial class DependencyUtils
         using var doc = JsonDocument.Parse(txt);
         var root = doc.RootElement;
 
-        // If this is version object containing dependencies
         if (root.TryGetProperty("dependencies", out var deps))
             return ReadDependencies(deps);
 
         throw new JsonException("No 'dependencies' section found for the package.");
-    }
-
-    public static Dictionary<string, string> ExtractDirectDependencies(string packageJson)
-    {
-        using var doc = JsonDocument.Parse(packageJson);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("dependencies", out var deps))
-            return ReadDependencies(deps);
-
-        throw new JsonException("No 'dependencies' section found in package.json.");
     }
 
     static Dictionary<string, string> ReadDependencies(JsonElement depsElem)
@@ -246,5 +266,5 @@ public static partial class DependencyUtils
     }
 
     [System.Text.RegularExpressions.GeneratedRegex("^\\d+\\.\\d+\\.\\d+$")]
-    private static partial System.Text.RegularExpressions.Regex Semver();
+    private static partial System.Text.RegularExpressions.Regex Semver();    
 }

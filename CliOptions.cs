@@ -8,6 +8,7 @@ public struct CliOptions
     public string Version;
     public int MaxDepth;
     public string Filter;
+    public bool OrderMode;
 
     public static CliOptions ParseArgs(string[] args)
     {
@@ -46,6 +47,10 @@ public struct CliOptions
                 case "--filter":
                     if (i + 1 >= args.Length) throw new ArgumentException("Missing value for --filter");
                     opts.Filter = args[++i];
+                    break;
+                case "-o":
+                case "--order":
+                    opts.OrderMode = true;
                     break;
                 case "-h":
                 case "--help":
