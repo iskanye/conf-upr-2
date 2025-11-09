@@ -9,8 +9,8 @@ partial class Program
         Console.WriteLine("Usage: dotnet run -- [options]");
         Console.WriteLine("Options:");
         Console.WriteLine("  -n, --name <name>         : Name of the package to analyze (required)");
-        Console.WriteLine("  -r, --repo <url|path>     : Repository URL or path to test repository (required)");
         Console.WriteLine("  -t, --test                : Enable test-repository mode (treat repo as local file)");
+        Console.WriteLine("  -r, --repo <url|path>     : Repository URL or path to test repository (only for test-repo)");
         Console.WriteLine("  -v, --version <version>   : Package version (optional)");
         Console.WriteLine("  -d, --max-depth <number>  : Maximum dependency depth (non-negative integer, default 5)");
         Console.WriteLine("  -f, --filter <substring>  : Substring to filter packages (optional)");
@@ -65,54 +65,56 @@ partial class Program
             return Error("--max-depth must be a non-negative integer.");
 
         Console.WriteLine("package_name={0}", opts.PackageName);
-        Console.WriteLine("repo={0}", opts.Repo);
         Console.WriteLine("test_repo_mode={0}", opts.TestRepoMode);
-        Console.WriteLine("version={0}", string.IsNullOrEmpty(opts.Version) ? "" : opts.Version);
+        if (opts.TestRepoMode)
+            Console.WriteLine("repo={0}", opts.Repo);
+        Console.WriteLine("version={0}", opts.Version);
         Console.WriteLine("max_depth={0}", opts.MaxDepth);
-        Console.WriteLine("filter={0}", string.IsNullOrEmpty(opts.Filter) ? "" : opts.Filter);
+        Console.WriteLine("filter={0}", opts.Filter);
 
         try
         {
+            using var client = new HttpClient();
+            var (adjacency, depths) = await DependencyUtils.BuildDependencyGraphBFS(client, opts);
+
+            Console.WriteLine();
+            Console.WriteLine("Dependency graph (node : depth):");
+            foreach (var kv in depths.OrderBy(k => k.Value).ThenBy(k => k.Key))
+            {
+                Console.WriteLine("{0} : {1}", kv.Key, kv.Value);
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Edges (parent -> child):");
+
+            foreach (var parent in adjacency.Keys.OrderBy(x => x))
+            {
+                foreach (var child in adjacency[parent])
+                {
+                    Console.WriteLine("{0} -> {1}", parent, child);
+                }
+            }
+
             if (opts.OrderMode)
             {
-                var (order, cycles) = await InstallOrder.ComputeInstallOrderAsync(opts);
+                var (order, cycles) = InstallOrder.ComputeInstallOrder(adjacency, opts.PackageName);
                 Console.WriteLine();
                 Console.WriteLine("Install / load order (dependencies first):");
                 int idx = 1;
                 foreach (var p in order)
-                    Console.WriteLine("\t{0}. {1}", idx++, p);
+                    Console.WriteLine("{0}. {1}", idx++, p);
 
                 if (cycles.Count > 0)
                 {
                     Console.WriteLine();
-                    Console.WriteLine("Detected cycles (may affect install order):");
+                    Console.WriteLine("Detected cycles:");
                     foreach (var c in cycles)
-                        Console.WriteLine("\tCycle: {0}", string.Join(" -> ", c));
+                        Console.WriteLine("Cycle: {0}", string.Join(" -> ", c));
                 }
 
                 Console.WriteLine();
             }
-            else
-            {
-                var (adjacency, depths) = await DependencyUtils.BuildDependencyGraphBFS(opts);
 
-                Console.WriteLine();
-                Console.WriteLine("Dependency graph (node : depth):");
-                foreach (var kv in depths.OrderBy(k => k.Value).ThenBy(k => k.Key))
-                {
-                    Console.WriteLine("\t{0} : {1}", kv.Key, kv.Value);
-                }
-
-                Console.WriteLine();
-                Console.WriteLine("Edges (parent -> child):");
-                foreach (var parent in adjacency.Keys.OrderBy(x => x))
-                {
-                    foreach (var child in adjacency[parent])
-                    {
-                        Console.WriteLine("\t{0} -> {1}", parent, child);
-                    }
-                }
-            }
         }
         catch (Exception ex)
         {

@@ -1,24 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-
 namespace ConfigUpr2;
 
 public static class InstallOrder
 {
-    public static async Task<(List<string> Order, List<List<string>> Cycles)> ComputeInstallOrderAsync(CliOptions opts)
+    public static (List<string>, List<List<string>>) ComputeInstallOrder(
+        Dictionary<string, List<string>> adjacency,
+        string packageName)
     {
-        Dictionary<string, List<string>> adjacency;
-
-        if (opts.TestRepoMode)
-        {
-            adjacency = DependencyUtils.ParseTestGraphFile(opts.Repo);
-        }
-        else
-        {
-            (adjacency, _) = await DependencyUtils.BuildDependencyGraphBFS(opts);
-        }
-
         var order = new List<string>();
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -26,7 +13,9 @@ public static class InstallOrder
 
         void Dfs(string node)
         {
-            if (visited.Contains(node)) return;
+            if (visited.Contains(node))
+                return;
+
             if (visiting.Contains(node))
             {
                 cycles.Add([node]);
@@ -47,7 +36,7 @@ public static class InstallOrder
             order.Add(node);
         }
 
-        Dfs(opts.PackageName);
+        Dfs(packageName);
 
         return (order, cycles);
     }

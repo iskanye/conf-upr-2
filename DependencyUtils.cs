@@ -1,18 +1,11 @@
-using System;
-using System.IO;
-using System.Net.Http;
 using System.Text.Json;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.ComponentModel.DataAnnotations;
-using System.Formats.Asn1;
-using System.Linq;
 
 namespace ConfigUpr2;
 
 public static partial class DependencyUtils
 {
-    public static async Task<(Dictionary<string, List<string>>, Dictionary<string,int>)> BuildDependencyGraphBFS(CliOptions opts)
+    public static async Task<(Dictionary<string, List<string>>, Dictionary<string, int>)> BuildDependencyGraphBFS(
+        HttpClient client, CliOptions opts)
     {
         var adjacency = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var depths = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -20,7 +13,6 @@ public static partial class DependencyUtils
 
         var filter = string.IsNullOrEmpty(opts.Filter) ? null : opts.Filter;
 
-        // For test mode, parse the repository graph file as mapping
         Dictionary<string, List<string>>? testGraph = null;
         if (opts.TestRepoMode)
         {
@@ -39,15 +31,11 @@ public static partial class DependencyUtils
                 continue;
             visited.Add(name);
 
-            // Apply filter: skip nodes containing the filter substring
             if (!string.IsNullOrEmpty(filter) && name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 continue;
-
-            // Ensure adjacency entry exists
             if (!adjacency.ContainsKey(name))
-                adjacency[name] = new List<string>();
+                adjacency[name] = [];
 
-            // If reached max depth, do not expand further (0 means unlimited)
             if (opts.MaxDepth != 0 && depth >= opts.MaxDepth)
                 continue;
 
@@ -57,7 +45,6 @@ public static partial class DependencyUtils
                 {
                     if (!string.IsNullOrEmpty(filter) && dep.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                         continue;
-                    // only add/enqueue dependencies if within max depth
                     var depDepth = depth + 1;
                     if (depDepth <= opts.MaxDepth || opts.MaxDepth == 0)
                     {
@@ -72,18 +59,15 @@ public static partial class DependencyUtils
 
             if (opts.TestRepoMode)
             {
-                // In test graph, dependencies are simple list of package names
                 if (testGraph != null && testGraph.TryGetValue(name, out var list))
                     DepsToQueue(list);
             }
             else
             {
-                // Fetch dependencies for the package from npm registry (best-effort)
                 try
                 {
-                    // For root package use the user-specified version (if any). For transitive dependencies, query registry without forcing the root version.
                     var versionArg = depth == 0 ? opts.Version : null;
-                    var depsDict = await FetchDependenciesForPackageAsync(name, versionArg);
+                    var depsDict = await FetchDependenciesForPackageAsync(client, name, versionArg);
                     if (depsDict != null)
                         DepsToQueue(depsDict.Keys);
                 }
@@ -94,7 +78,7 @@ public static partial class DependencyUtils
         return (adjacency, depths);
     }
 
-    public static Dictionary<string, List<string>> ParseTestGraphFile(string path)
+    static Dictionary<string, List<string>> ParseTestGraphFile(string path)
     {
         if (Directory.Exists(path))
         {
@@ -217,7 +201,7 @@ public static partial class DependencyUtils
                 if (parts.Length > 1)
                 {
                     var rhs = parts[1];
-                    var deps = rhs.Split(new char[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    var deps = rhs.Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
 
                     foreach (var d in deps)
                         list.Add(d.Trim());
@@ -235,9 +219,8 @@ public static partial class DependencyUtils
         return Semver().IsMatch(s);
     }
 
-    static async Task<Dictionary<string,string>?> FetchDependenciesForPackageAsync(string pkg, string? versionRange)
+    static async Task<Dictionary<string, string>?> FetchDependenciesForPackageAsync(HttpClient client, string pkg, string? versionRange)
     {
-        using var client = new HttpClient();
         string url;
         if (!string.IsNullOrEmpty(versionRange) && IsExactSemver(versionRange))
             url = $"https://registry.npmjs.org/{pkg}/{versionRange}";
@@ -255,16 +238,6 @@ public static partial class DependencyUtils
             return ReadDependencies(deps);
 
         throw new JsonException("No 'dependencies' section found for the package.");
-    }
-
-    public static Dictionary<string, string> ExtractDirectDependencies(string packageJson)
-    {
-        using var doc = JsonDocument.Parse(packageJson);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("dependencies", out var deps))
-            return ReadDependencies(deps);
-
-        throw new JsonException("No 'dependencies' section found in package.json.");
     }
 
     static Dictionary<string, string> ReadDependencies(JsonElement depsElem)
