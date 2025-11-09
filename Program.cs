@@ -120,14 +120,7 @@ partial class Program
 
             if (opts.Visualize)
             {
-                // adjacency/depths were already fetched above in this try block
-                var mermaid = MermaidVisualizer.GenerateMermaid(adjacency);
-                
-                Console.WriteLine();
-                Console.WriteLine("Mermaid diagram source:");
-                Console.WriteLine(mermaid);
-                Console.WriteLine();
-                
+                var mermaid = MermaidVisualizer.GenerateMermaid(adjacency);                
                 await MermaidVisualizer.WriteHtmlAndOpenAsync(mermaid, opts.PackageName);
             }
 
