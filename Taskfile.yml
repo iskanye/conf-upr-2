@@ -11,27 +11,27 @@ tasks:
       - dotnet build "{{.proj}}"
     silent: true
 
-  run:sample:
+  sample:
     desc: "Run against local sample_package.json (test mode)"
     cmds:
       - dotnet run --project "{{.proj}}" -- -t -r "{{.sample}}" -n sample -v 1.2.3
 
-  run:repo:
+  npm:
     desc: "Run attempting to fetch package.json from a npm package"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n express -v 2.0.0
+      - dotnet run --project "{{.proj}}" -- -n vue
 
-  run:mermaid:
+  mermaid:
     desc: "Visualize dependency graph in Mermaid format"
     cmds:
-      - dotnet run --project "{{.proj}}" -- -n mocha -m
+      - dotnet run --project "{{.proj}}" -- -n vue -m
       
-  run:order:
+  order:
     desc: "Run attempting to fetch package.json from a npm package (Order mode)"
     cmds:
       - dotnet run --project "{{.proj}}" -- -n express -v 3.0.0 -o
 
-  run:help:
+  help:
     desc: "Show CLI help"
     cmds:
       - dotnet run --project "{{.proj}}" -- -h
